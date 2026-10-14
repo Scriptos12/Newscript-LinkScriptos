@@ -1,0 +1,541 @@
+-- ============================================
+--   LinkScripts Menu (v3 + Noclip)
+--   tg https://t.me/linkscriptos
+-- ============================================
+
+local player = game.Players.LocalPlayer
+local uis = game:GetService("UserInputService")
+local runService = game:GetService("RunService")
+
+-- == НАСТРОЙКИ ==
+local flyEnabled = false
+local speedEnabled = false
+local noclipEnabled = false
+local currentSpeed = 100
+local flySpeed = 80
+local sliderMin = 16
+local sliderMax = 300
+
+-- == БЕЗОПАСНЫЙ ОБХОД АНТИЧИТА (для Speed) ==
+local function protectHumanoid(hum)
+    if not hum then return end
+    pcall(function()
+        local mt = getmetatable(hum)
+        if mt then
+            local oldIndex = mt.__index
+            mt.__index = function(self, key)
+                if key == "WalkSpeed" and self == hum then
+                    return 16
+                end
+                return oldIndex(self, key)
+            end
+        end
+    end)
+end
+
+-- == GUI ==
+local gui = Instance.new("ScreenGui")
+gui.Name = "LinkScriptsMenu"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 240, 0, 385) -- увеличили высоту под Noclip
+mainFrame.Position = UDim2.new(0, 20, 0.5, -192)
+mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = gui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 12)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(0, 200, 255)
+mainStroke.Thickness = 1.5
+mainStroke.Transparency = 0.3
+mainStroke.Parent = mainFrame
+
+-- == ФОН С КАРТИНКОЙ ==
+local BACKGROUND_IMAGE_ID = ""
+local USE_BACKGROUND = false
+
+if USE_BACKGROUND and BACKGROUND_IMAGE_ID ~= "" then
+    local bgImage = Instance.new("ImageLabel")
+    bgImage.Size = UDim2.new(1, 0, 1, 0)
+    bgImage.BackgroundTransparency = 1
+    bgImage.Image = BACKGROUND_IMAGE_ID
+    bgImage.ImageTransparency = 0.35
+    bgImage.ScaleType = Enum.ScaleType.Crop
+    bgImage.ZIndex = 0
+    bgImage.Parent = mainFrame
+end
+
+local bgOverlay = Instance.new("Frame")
+bgOverlay.Size = UDim2.new(1, 0, 1, 0)
+bgOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+bgOverlay.BackgroundTransparency = 0.5
+bgOverlay.BorderSizePixel = 0
+bgOverlay.ZIndex = 1
+bgOverlay.Parent = mainFrame
+
+-- Заголовок
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -60, 0, 38)
+title.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+title.BackgroundTransparency = 0.2
+title.Text = "  LinkScripts"
+title.TextColor3 = Color3.fromRGB(0, 220, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 17
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = 2
+title.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = title
+
+-- Свернуть
+local hideBtn = Instance.new("TextButton")
+hideBtn.Size = UDim2.new(0, 28, 0, 28)
+hideBtn.Position = UDim2.new(1, -62, 0, 5)
+hideBtn.BackgroundColor3 = Color3.fromRGB(230, 180, 40)
+hideBtn.Text = "—"
+hideBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hideBtn.Font = Enum.Font.GothamBold
+hideBtn.TextSize = 18
+hideBtn.ZIndex = 3
+hideBtn.Parent = mainFrame
+
+local hideCorner = Instance.new("UICorner")
+hideCorner.CornerRadius = UDim.new(0, 6)
+hideCorner.Parent = hideBtn
+
+-- Полное отключение
+local killBtn = Instance.new("TextButton")
+killBtn.Size = UDim2.new(0, 28, 0, 28)
+killBtn.Position = UDim2.new(1, -32, 0, 5)
+killBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+killBtn.Text = "X"
+killBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+killBtn.Font = Enum.Font.GothamBold
+killBtn.TextSize = 16
+killBtn.ZIndex = 3
+killBtn.Parent = mainFrame
+
+local killCorner = Instance.new("UICorner")
+killCorner.CornerRadius = UDim.new(0, 6)
+killCorner.Parent = killBtn
+
+-- Плавающая кнопка M
+local openBtn = Instance.new("TextButton")
+openBtn.Size = UDim2.new(0, 50, 0, 50)
+openBtn.Position = UDim2.new(0, 10, 0.5, -25)
+openBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+openBtn.Text = "M"
+openBtn.TextColor3 = Color3.fromRGB(0, 220, 255)
+openBtn.Font = Enum.Font.GothamBold
+openBtn.TextSize = 20
+openBtn.Visible = false
+openBtn.Active = true
+openBtn.Parent = gui
+
+local openCorner = Instance.new("UICorner")
+openCorner.CornerRadius = UDim.new(1, 0)
+openCorner.Parent = openBtn
+
+local openStroke = Instance.new("UIStroke")
+openStroke.Color = Color3.fromRGB(0, 200, 255)
+openStroke.Thickness = 1.5
+openStroke.Transparency = 0.2
+openStroke.Parent = openBtn
+
+-- Перетаскивание M
+local draggingM = false
+local dragStart, startPos
+local movedM = false
+
+openBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 
+    or input.UserInputType == Enum.UserInputType.Touch then
+        draggingM = true
+        movedM = false
+        dragStart = input.Position
+        startPos = openBtn.Position
+    end
+end)
+
+uis.InputChanged:Connect(function(input)
+    if draggingM and (input.UserInputType == Enum.UserInputType.MouseMovement 
+    or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        if math.abs(delta.X) > 5 or math.abs(delta.Y) > 5 then
+            movedM = true
+        end
+        openBtn.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+uis.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 
+    or input.UserInputType == Enum.UserInputType.Touch then
+        if draggingM and not movedM then
+            mainFrame.Visible = true
+            openBtn.Visible = false
+        end
+        draggingM = false
+    end
+end)
+
+-- == КНОПКА FLY ==
+local flyBtn = Instance.new("TextButton")
+flyBtn.Size = UDim2.new(1, -20, 0, 38)
+flyBtn.Position = UDim2.new(0, 10, 0, 50)
+flyBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+flyBtn.BackgroundTransparency = 0.15
+flyBtn.Text = "Fly: OFF"
+flyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+flyBtn.Font = Enum.Font.GothamMedium
+flyBtn.TextSize = 14
+flyBtn.ZIndex = 2
+flyBtn.Parent = mainFrame
+
+local flyCorner = Instance.new("UICorner")
+flyCorner.CornerRadius = UDim.new(0, 8)
+flyCorner.Parent = flyBtn
+
+-- == КНОПКА SPEED ==
+local speedBtn = Instance.new("TextButton")
+speedBtn.Size = UDim2.new(1, -20, 0, 38)
+speedBtn.Position = UDim2.new(0, 10, 0, 96)
+speedBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+speedBtn.BackgroundTransparency = 0.15
+speedBtn.Text = "Speed: OFF"
+speedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedBtn.Font = Enum.Font.GothamMedium
+speedBtn.TextSize = 14
+speedBtn.ZIndex = 2
+speedBtn.Parent = mainFrame
+
+local speedCorner = Instance.new("UICorner")
+speedCorner.CornerRadius = UDim.new(0, 8)
+speedCorner.Parent = speedBtn
+
+-- == КНОПКА NOCLIP ==
+local noclipBtn = Instance.new("TextButton")
+noclipBtn.Size = UDim2.new(1, -20, 0, 38)
+noclipBtn.Position = UDim2.new(0, 10, 0, 142)
+noclipBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+noclipBtn.BackgroundTransparency = 0.15
+noclipBtn.Text = "Noclip: OFF"
+noclipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+noclipBtn.Font = Enum.Font.GothamMedium
+noclipBtn.TextSize = 14
+noclipBtn.ZIndex = 2
+noclipBtn.Parent = mainFrame
+
+local noclipCorner = Instance.new("UICorner")
+noclipCorner.CornerRadius = UDim.new(0, 8)
+noclipCorner.Parent = noclipBtn
+
+-- == ПОЛЗУНОК ==
+local sliderBg = Instance.new("Frame")
+sliderBg.Size = UDim2.new(1, -20, 0, 32)
+sliderBg.Position = UDim2.new(0, 10, 0, 190)
+sliderBg.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+sliderBg.BorderSizePixel = 0
+sliderBg.ZIndex = 2
+sliderBg.Parent = mainFrame
+
+local sliderBgCorner = Instance.new("UICorner")
+sliderBgCorner.CornerRadius = UDim.new(0, 10)
+sliderBgCorner.Parent = sliderBg
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(0, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+sliderFill.BorderSizePixel = 0
+sliderFill.ZIndex = 2
+sliderFill.Parent = sliderBg
+
+local sliderFillCorner = Instance.new("UICorner")
+sliderFillCorner.CornerRadius = UDim.new(0, 10)
+sliderFillCorner.Parent = sliderFill
+
+local knob = Instance.new("TextButton")
+knob.Size = UDim2.new(0, 26, 0, 26)
+knob.Position = UDim2.new(0, 0, 0.5, -13)
+knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+knob.Text = ""
+knob.AutoButtonColor = false
+knob.ZIndex = 3
+knob.Parent = sliderBg
+
+local knobCorner = Instance.new("UICorner")
+knobCorner.CornerRadius = UDim.new(1, 0)
+knobCorner.Parent = knob
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1, -20, 0, 20)
+speedLabel.Position = UDim2.new(0, 10, 0, 225)
+speedLabel.BackgroundTransparency = 1
+speedLabel.Text = "Speed: " .. currentSpeed
+speedLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+speedLabel.Font = Enum.Font.Gotham
+speedLabel.TextSize = 12
+speedLabel.ZIndex = 2
+speedLabel.Parent = mainFrame
+
+-- Подпись внизу
+local footer = Instance.new("TextLabel")
+footer.Size = UDim2.new(1, 0, 0, 25)
+footer.Position = UDim2.new(0, 0, 1, -25)
+footer.BackgroundTransparency = 1
+footer.Text = "tg https://t.me/linkscriptos"
+footer.TextColor3 = Color3.fromRGB(120, 120, 140)
+footer.Font = Enum.Font.Gotham
+footer.TextSize = 11
+footer.ZIndex = 2
+footer.Parent = mainFrame
+
+-- == ЛОГИКА ПОЛЗУНКА ==
+local draggingSlider = false
+
+local function setSpeedFromX(xPos)
+    local absPos = sliderBg.AbsolutePosition
+    local absSize = sliderBg.AbsoluteSize
+    if absSize.X <= 0 then return end
+    local relative = math.clamp((xPos - absPos.X) / absSize.X, 0, 1)
+
+    knob.Position = UDim2.new(relative, -13, 0.5, -13)
+    sliderFill.Size = UDim2.new(relative, 0, 1, 0)
+
+    currentSpeed = math.floor(sliderMin + (sliderMax - sliderMin) * relative)
+    speedLabel.Text = "Speed: " .. currentSpeed
+
+    if speedEnabled then
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = currentSpeed end
+        end
+    end
+end
+
+knob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 
+    or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSlider = true
+    end
+end)
+
+sliderBg.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 
+    or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSlider = true
+        setSpeedFromX(input.Position.X)
+    end
+end)
+
+uis.InputChanged:Connect(function(input)
+    if draggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement 
+    or input.UserInputType == Enum.UserInputType.Touch) then
+        setSpeedFromX(input.Position.X)
+    end
+end)
+
+uis.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 
+    or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSlider = false
+    end
+end)
+
+-- == FLY ==
+local bodyVelocity, bodyGyro, flyConnection
+
+local function startFly()
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.Parent = hrp
+
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bodyGyro.CFrame = hrp.CFrame
+    bodyGyro.Parent = hrp
+
+    flyConnection = runService.RenderStepped:Connect(function()
+        local moveDir = Vector3.new(0, 0, 0)
+        if uis:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + workspace.CurrentCamera.CFrame.LookVector end
+        if uis:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - workspace.CurrentCamera.CFrame.LookVector end
+        if uis:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - workspace.CurrentCamera.CFrame.RightVector end
+        if uis:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + workspace.CurrentCamera.CFrame.RightVector end
+        if uis:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if uis:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
+        if bodyVelocity and bodyVelocity.Parent then
+            bodyVelocity.Velocity = moveDir * flySpeed
+        end
+    end)
+end
+
+local function stopFly()
+    if flyConnection then flyConnection:Disconnect() end
+    if bodyVelocity then bodyVelocity:Destroy() end
+    if bodyGyro then bodyGyro:Destroy() end
+    bodyVelocity = nil
+    bodyGyro = nil
+end
+
+-- == NOCLIP ==
+-- Отключает CanCollide у всех частей персонажа локально.
+-- Сервер не видит изменения, но ты проходишь сквозь стены.
+local noclipConnection
+
+local function setNoclip(state)
+    local char = player.Character
+    if not char then return end
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = not state
+        end
+    end
+end
+
+-- Постоянно следим, чтобы CanCollide не вернулся обратно (игра может сбрасывать)
+noclipConnection = runService.Stepped:Connect(function()
+    if not noclipEnabled then return end
+    local char = player.Character
+    if not char then return end
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.CanCollide then
+            part.CanCollide = false
+        end
+    end
+end)
+
+-- При возрождении применяем noclip заново
+player.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    if noclipEnabled then
+        setNoclip(true)
+    end
+    if speedEnabled then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.WalkSpeed = currentSpeed
+            protectHumanoid(hum)
+        end
+    end
+end)
+
+-- == SPEED (Heartbeat) ==
+local speedHeartbeat = runService.Heartbeat:Connect(function()
+    if not speedEnabled then return end
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.WalkSpeed ~= currentSpeed then
+        hum.WalkSpeed = currentSpeed
+    end
+end)
+
+-- == КНОПКА FLY ==
+flyBtn.MouseButton1Click:Connect(function()
+    flyEnabled = not flyEnabled
+    if flyEnabled then
+        flyBtn.Text = "Fly: ON"
+        flyBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 70)
+        startFly()
+    else
+        flyBtn.Text = "Fly: OFF"
+        flyBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+        stopFly()
+    end
+end)
+
+-- == КНОПКА SPEED ==
+speedBtn.MouseButton1Click:Connect(function()
+    speedEnabled = not speedEnabled
+    if speedEnabled then
+        speedBtn.Text = "Speed: ON"
+        speedBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 70)
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.WalkSpeed = currentSpeed
+                protectHumanoid(hum)
+            end
+        end
+    else
+        speedBtn.Text = "Speed: OFF"
+        speedBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = 16 end
+        end
+    end
+end)
+
+-- == КНОПКА NOCLIP ==
+noclipBtn.MouseButton1Click:Connect(function()
+    noclipEnabled = not noclipEnabled
+    if noclipEnabled then
+        noclipBtn.Text = "Noclip: ON"
+        noclipBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 70)
+        setNoclip(true)
+    else
+        noclipBtn.Text = "Noclip: OFF"
+        noclipBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+        setNoclip(false)
+    end
+end)
+
+-- == СВЕРНУТЬ ==
+hideBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    openBtn.Visible = true
+end)
+
+-- == ПОЛНОЕ ОТКЛЮЧЕНИЕ ==
+killBtn.MouseButton1Click:Connect(function()
+    flyEnabled = false
+    speedEnabled = false
+    noclipEnabled = false
+
+    if flyConnection then flyConnection:Disconnect() end
+    if bodyVelocity then bodyVelocity:Destroy() end
+    if bodyGyro then bodyGyro:Destroy() end
+    if speedHeartbeat then speedHeartbeat:Disconnect() end
+    if noclipConnection then noclipConnection:Disconnect() end
+
+    -- Возвращаем коллизию частям тела
+    local char = player.Character
+    if char then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = 16 end
+    end
+
+    gui:Destroy()
+end)
